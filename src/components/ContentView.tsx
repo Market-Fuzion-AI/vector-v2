@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, MoreHorizontal, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Edit2 } from 'lucide-react';
+import { Plus, Search, Filter, MoreHorizontal, Calendar, Clock, CheckCircle2, AlertCircle, FileText, Edit2, Loader2 } from 'lucide-react';
 import { ContentItem, ContentStatus, ContentPlatform, Mission } from '../types';
 import { ContentEditor } from './ContentEditor';
 import { motion, AnimatePresence } from 'motion/react';
@@ -7,9 +7,13 @@ import { STATUS_BADGES } from '../constants';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { normalizeHashtags } from '../utils/normalizeHashtags';
 
 interface ContentViewProps {
   missions: Mission[];
+  webhookPublish: string;
+  webhookSecret: string;
+  brandVoice: string;
 }
 
 const STATUS_TABS: ContentStatus[] = ['idea', 'draft', 'scheduled', 'published'];
@@ -27,7 +31,7 @@ const STATUS_COLORS: Record<ContentStatus, string> = {
   'published': 'border-l-green-500',
 };
 
-export const ContentView = ({ missions }: ContentViewProps) => {
+export const ContentView = ({ missions, webhookPublish, webhookSecret, brandVoice }: ContentViewProps) => {
   const { currentUser } = useAuth();
   const [activeStatus, setActiveStatus] = useState<ContentStatus>('idea');
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
@@ -35,6 +39,8 @@ export const ContentView = ({ missions }: ContentViewProps) => {
   const [editingItem, setEditingItem] = useState<ContentItem | undefined>(undefined);
   const [schedulingItem, setSchedulingItem] = useState<ContentItem | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
+  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set());
+  const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentUser) {
@@ -59,37 +65,23 @@ export const ContentView = ({ missions }: ContentViewProps) => {
     if (!currentUser) return;
 
     try {
-      // Trigger webhook if publishing (and not already published)
-      if (item.status === 'published' && editingItem?.status !== 'published') {
-        const webhookUrl = localStorage.getItem('vector_webhook_publish');
-        if (webhookUrl) {
-          fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: "publish_content",
-              title: item.title,
-              body: item.caption || item.title,
-              timestamp: new Date().toISOString()
-            })
-          }).catch(err => console.error("Publish Webhook Error:", err));
-        }
-      }
+      const sanitize = (obj: Record<string, unknown>) =>
+        Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
 
-      if (editingItem) {
+      if (item.id) {
         // Update existing
         const docRef = doc(db, 'marketingDrafts', item.id);
         const { id, ...data } = item;
-        await updateDoc(docRef, { ...data, updatedAt: new Date().toISOString() });
+        await updateDoc(docRef, sanitize({ ...data, updatedAt: new Date().toISOString() }));
       } else {
         // Create new
         const { id, ...data } = item;
-        await addDoc(collection(db, 'marketingDrafts'), {
+        await addDoc(collection(db, 'marketingDrafts'), sanitize({
           ...data,
           uid: currentUser.uid,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        }));
       }
       
       // Switch to the tab where the item now lives
@@ -120,30 +112,9 @@ export const ContentView = ({ missions }: ContentViewProps) => {
 
     try {
       const docRef = doc(db, 'marketingDrafts', id);
-      
-      // Trigger webhook if publishing
-      if (nextStatus === 'published') {
-        const item = contentItems.find(i => i.id === id);
-        if (item) {
-          const webhookUrl = localStorage.getItem('vector_webhook_publish');
-          if (webhookUrl) {
-            fetch(webhookUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: "publish_content",
-                title: item.title,
-                body: item.caption || item.title,
-                timestamp: new Date().toISOString()
-              })
-            }).catch(err => console.error("Publish Webhook Error:", err));
-          }
-        }
-      }
-
-      await updateDoc(docRef, { 
-        status: nextStatus, 
-        updatedAt: new Date().toISOString() 
+      await updateDoc(docRef, {
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
       });
     } catch (error) {
       console.error("Error updating status:", error);
@@ -193,6 +164,64 @@ export const ContentView = ({ missions }: ContentViewProps) => {
       setScheduleDate('');
     } catch (error) {
       console.error("Error scheduling content:", error);
+    }
+  };
+
+  const handlePublishNow = async (e: React.MouseEvent, item: ContentItem) => {
+    e.stopPropagation();
+
+    if (!webhookPublish) {
+      alert("Add Publish webhook in Settings.");
+      return;
+    }
+
+    // Idempotency guard
+    if (publishingIds.has(item.id)) return;
+
+    setPublishingIds(prev => new Set(prev).add(item.id));
+    setPublishErrors(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+
+    const publishedAt = new Date().toISOString();
+    const hashtags = normalizeHashtags(item.hashtags);
+    const payload = {
+      requestId: crypto.randomUUID(),
+      userId: currentUser?.uid,
+      contentId: item.id,
+      platform: item.platform,
+      title: item.title,
+      hook: item.hook ?? null,
+      caption: item.caption ?? null,
+      hashtags,
+      cta: item.cta ?? null,
+      imageUrl: item.imageUrl ?? null,
+      scheduledAt: item.scheduledAt ?? null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+
+    try {
+      const publishHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (webhookSecret) publishHeaders['x-vector-secret'] = webhookSecret;
+      const res = await fetch(webhookPublish, {
+        method: 'POST',
+        headers: publishHeaders,
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Update Firestore on success
+      const docRef = doc(db, 'marketingDrafts', item.id);
+      await updateDoc(docRef, {
+        status: 'published',
+        publishedAt,
+        updatedAt: publishedAt,
+      });
+      setActiveStatus('published');
+    } catch (err) {
+      console.error("Publish Webhook Error:", err);
+      setPublishErrors(prev => ({ ...prev, [item.id]: 'Failed to publish. Try again.' }));
+    } finally {
+      setPublishingIds(prev => { const n = new Set(prev); n.delete(item.id); return n; });
     }
   };
 
@@ -280,10 +309,15 @@ export const ContentView = ({ missions }: ContentViewProps) => {
                 </div>
               </div>
 
+              {/* Inline publish error */}
+              {publishErrors[item.id] && (
+                <p className="text-[10px] font-medium text-red-500 mt-1 px-0.5">{publishErrors[item.id]}</p>
+              )}
+
               {/* Action Buttons */}
               <div className="flex gap-2 pt-2">
                 {item.status === 'idea' && (
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); updateContentStatus(item.id, 'draft'); }}
                     className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-colors border border-gray-200"
                   >
@@ -292,44 +326,48 @@ export const ContentView = ({ missions }: ContentViewProps) => {
                 )}
                 {item.status === 'draft' && (
                   <>
-                    <button 
+                    <button
                       onClick={(e) => { e.stopPropagation(); handleScheduleClick(item); }}
                       className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-colors border border-gray-200"
                     >
                       Schedule
                     </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); updateContentStatus(item.id, 'published'); }}
-                      className="flex-1 py-2 bg-[#2F5BFF]/10 hover:bg-[#2F5BFF]/20 text-[#2F5BFF] rounded-xl text-xs font-bold transition-colors"
+                    <button
+                      onClick={(e) => handlePublishNow(e, item)}
+                      disabled={publishingIds.has(item.id)}
+                      className="flex-1 py-2 bg-[#2F5BFF]/10 hover:bg-[#2F5BFF]/20 text-[#2F5BFF] rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Publish Now
+                      {publishingIds.has(item.id) ? <Loader2 size={12} className="animate-spin" /> : null}
+                      {publishingIds.has(item.id) ? 'Publishing...' : 'Publish Now'}
                     </button>
                   </>
                 )}
                 {item.status === 'scheduled' && (
                   <>
-                    <button 
+                    <button
                       onClick={(e) => { e.stopPropagation(); handleEdit(item); }}
                       className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-colors border border-gray-200"
                     >
                       Edit
                     </button>
-                    <button 
+                    <button
                       onClick={(e) => { e.stopPropagation(); updateContentStatus(item.id, 'draft'); }}
                       className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-colors border border-gray-200"
                     >
                       Move to Draft
                     </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); updateContentStatus(item.id, 'published'); }}
-                      className="flex-1 py-2 bg-[#2F5BFF] hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+                    <button
+                      onClick={(e) => handlePublishNow(e, item)}
+                      disabled={publishingIds.has(item.id)}
+                      className="flex-1 py-2 bg-[#2F5BFF] hover:bg-blue-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center justify-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Publish Now
+                      {publishingIds.has(item.id) ? <Loader2 size={12} className="animate-spin" /> : null}
+                      {publishingIds.has(item.id) ? 'Publishing...' : 'Publish Now'}
                     </button>
                   </>
                 )}
                 {item.status === 'published' && (
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); duplicateToDraft(item); }}
                     className="flex-1 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-bold transition-colors border border-gray-200"
                   >
@@ -368,6 +406,7 @@ export const ContentView = ({ missions }: ContentViewProps) => {
               initialStatus={activeStatus}
               missions={missions}
               onSave={handleSaveContent}
+              brandVoice={brandVoice}
             />
           </motion.div>
         )}

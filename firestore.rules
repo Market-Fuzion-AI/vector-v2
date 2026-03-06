@@ -1,0 +1,43 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Default: deny everything ────────────────────────────────────────────
+    // Firestore denies by default — any path not matched below is unreachable.
+
+    // ── /users/{userId} and all subcollections (dailySummaries, etc.) ────────
+    // The outer match covers the user profile document itself.
+    // The inner recursive wildcard covers every subcollection document.
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+
+      match /{everything=**} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == userId;
+      }
+    }
+
+    // ── /missions/{missionId} ────────────────────────────────────────────────
+    // Top-level collection. Documents are user-scoped via a `uid` field.
+    // read / update / delete: compare uid field on the stored document.
+    // create: compare uid field on the incoming document (resource not yet written).
+    match /missions/{missionId} {
+      allow read, update, delete: if request.auth != null
+                                  && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+    }
+
+    // ── /marketingDrafts/{draftId} ──────────────────────────────────────────
+    // Top-level collection. Same uid-field scoping as missions.
+    match /marketingDrafts/{draftId} {
+      allow read, update, delete: if request.auth != null
+                                  && resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid;
+    }
+
+  }
+}

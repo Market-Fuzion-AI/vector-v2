@@ -44,11 +44,15 @@ export interface ContentItem {
   hashtags?: string[];
   cta?: string;
   media?: string[]; // Placeholder for media URLs
-  image?: string; // Base64 image string
+  image?: string; // Base64 image string (legacy / local upload)
+  imageUrl?: string; // Firebase Storage download URL (preferred)
+  imagePrompt?: string; // Prompt used to generate imageUrl
+  imageStyle?: string; // Style preset used (e.g. 'minimal', '3d')
   linkedMissionId?: string;
   createdAt: string;
   updatedAt: string;
   scheduledAt?: string;
+  publishedAt?: string;
 }
 
 export const initialMissions: Mission[] = [

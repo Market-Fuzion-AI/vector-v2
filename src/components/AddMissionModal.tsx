@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Calendar, Tag, Target } from 'lucide-react';
 import { Mission, MissionCategory } from '../types';
 import { CATEGORY_CONFIG } from '../constants';
@@ -16,6 +16,8 @@ export const AddMissionModal = ({ isOpen, onClose, onAdd, isSaving = false }: Ad
   const [dueDate, setDueDate] = useState('');
   const [destination, setDestination] = useState<'Today' | 'Next' | 'Backlog'>('Today');
   const [localIsSaving, setLocalIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
+  const addLockRef = useRef(false);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -27,6 +29,8 @@ export const AddMissionModal = ({ isOpen, onClose, onAdd, isSaving = false }: Ad
       setDueDate('');
       setDestination('Today');
       setLocalIsSaving(false);
+      setSaveStatus('idle');
+      addLockRef.current = false;
     } else {
       document.body.style.overflow = 'unset';
     }
@@ -38,21 +42,20 @@ export const AddMissionModal = ({ isOpen, onClose, onAdd, isSaving = false }: Ad
   if (!isOpen) return null;
 
   const handleAdd = async () => {
-    if (!title.trim() || localIsSaving || isSaving) return;
-    
+    if (addLockRef.current || !title.trim() || localIsSaving || isSaving) return;
+
+    addLockRef.current = true;
     setLocalIsSaving(true);
+    setSaveStatus('idle');
+
     try {
-      await onAdd({
-        title,
-        category,
-        dueDate: dueDate || undefined,
-        destination,
-      });
-      
-      onClose();
+      await onAdd({ title, category, dueDate: dueDate || undefined, destination });
+      setSaveStatus('saved');
+      setTimeout(() => onClose(), 800);
     } catch (error) {
       console.error("Error adding mission:", error);
-    } finally {
+      setSaveStatus('error');
+      addLockRef.current = false;
       setLocalIsSaving(false);
     }
   };
@@ -149,18 +152,24 @@ export const AddMissionModal = ({ isOpen, onClose, onAdd, isSaving = false }: Ad
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleAdd}
-            disabled={!title.trim() || isSaving || localIsSaving}
-            className={`px-6 py-2.5 bg-[#2F5BFF] hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-95 flex items-center gap-2 ${(!title.trim() || isSaving || localIsSaving) ? 'opacity-50 cursor-not-allowed shadow-none' : ''}`}
+            disabled={!title.trim() || isSaving || localIsSaving || saveStatus === 'saved'}
+            className={`px-6 py-2.5 text-white text-xs font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2 ${
+              saveStatus === 'saved'  ? 'bg-emerald-500 shadow-emerald-500/20' :
+              saveStatus === 'error'  ? 'bg-red-500 shadow-red-500/20' :
+              (!title.trim() || isSaving || localIsSaving) ? 'bg-[#2F5BFF] opacity-50 cursor-not-allowed shadow-none' :
+              'bg-[#2F5BFF] hover:bg-blue-600 shadow-blue-500/20'
+            }`}
           >
-            {isSaving || localIsSaving ? (
+            {(isSaving || localIsSaving) && saveStatus === 'idle' ? (
               <>
                 <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span>Adding...</span>
+                <span>Saving...</span>
               </>
-            ) : (
-              'Add Mission'
-            )}
+            ) : saveStatus === 'saved' ? 'Saved ✓'
+              : saveStatus === 'error' ? 'Save failed — try again'
+              : 'Add Mission'}
           </button>
         </div>
       </div>

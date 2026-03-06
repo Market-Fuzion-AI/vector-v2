@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+/* Suppress native mobile tap highlight (the blue/grey circle on iOS/Android) */
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+/* Belt-and-suspenders: kill focus rings on anything interactive */
+button:focus,
+a:focus,
+[role="button"]:focus {
+  outline: none;
+  box-shadow: none;
+}

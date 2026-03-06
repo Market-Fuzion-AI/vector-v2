@@ -134,7 +134,7 @@ export const EditMissionModal = ({ mission, isOpen, onClose, onSave, onDelete }:
           </div>
         </div>
 
-        <div className="bg-gray-50 px-5 py-4 flex justify-between items-center border-t border-gray-100">
+        <div className="bg-gray-50 px-5 py-4 flex justify-between items-center border-t border-gray-100 sticky bottom-0">
           <button
             onClick={() => {
               if (confirm('Are you sure you want to delete this mission?')) {

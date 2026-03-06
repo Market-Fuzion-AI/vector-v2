@@ -43,6 +43,7 @@ import { Mission, MissionCategory } from '../types';
 import { EditMissionModal } from './EditMissionModal';
 import { AddMissionModal } from './AddMissionModal';
 import { getCategoryStyle } from '../constants';
+import { normalizeStatus, isCompleted } from '../utils/missionStatus';
 
 const dropAnimation: DropAnimation = {
   sideEffects: defaultDropAnimationSideEffects({
@@ -71,7 +72,7 @@ const SortableItem: React.FC<{ mission: Mission; onEdit: (mission: Mission) => v
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const isBacklog = mission.status === 'Backlog';
+  const isBacklog = normalizeStatus(mission.status) === 'Backlog';
   const categoryStyle = getCategoryStyle(mission.category);
 
   return (
@@ -147,23 +148,28 @@ interface PlanViewProps {
   onUpdateMissions: (missions: Mission[]) => void;
   weeklyFocus: string;
   onUpdateWeeklyFocus: (focus: string) => void;
+  quarterObjective: string;
+  onUpdateQuarterObjective: (objective: string) => void;
   onAddMission: (mission: { title: string; category: MissionCategory; dueDate?: string; destination: 'Today' | 'Next' | 'Backlog' }) => Promise<void>;
   onSaveMission: (mission: Mission) => void;
   onDeleteMission: (id: string) => void;
   isSaving: boolean;
 }
 
-export const PlanView = ({ 
-  missions, 
-  onUpdateMissions, 
-  weeklyFocus, 
+export const PlanView = ({
+  missions,
+  onUpdateMissions,
+  weeklyFocus,
   onUpdateWeeklyFocus,
+  quarterObjective,
+  onUpdateQuarterObjective,
   onAddMission,
   onSaveMission,
   onDeleteMission,
   isSaving
 }: PlanViewProps) => {
   const [isBacklogOpen, setIsBacklogOpen] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragItem, setActiveDragItem] = useState<Mission | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -174,13 +180,8 @@ export const PlanView = ({
   const objectiveInputRef = React.useRef<HTMLInputElement>(null);
   const focusInputRef = React.useRef<HTMLInputElement>(null);
 
-  const [sprintGoal, setSprintGoal] = useState(() => {
-    return localStorage.getItem('vector_quarter_objective') || "Launch V2 Beta";
-  });
-
-  React.useEffect(() => {
-    localStorage.setItem('vector_quarter_objective', sprintGoal);
-  }, [sprintGoal]);
+  const sprintGoal = quarterObjective;
+  const setSprintGoal = onUpdateQuarterObjective;
 
   React.useEffect(() => {
     if (isEditingObjective && objectiveInputRef.current) {
@@ -206,9 +207,28 @@ export const PlanView = ({
   const daysLeft = 90 - dayOfQuarter;
   const sprintProgress = Math.min(100, Math.floor((dayOfQuarter / 90) * 100));
 
-  const activeMission = missions.find(m => m.status === 'Active');
-  const queueMissions = missions.filter(m => m.status === 'Queue');
-  const backlogMissions = missions.filter(m => m.status === 'Backlog');
+  const activeMission = missions.find(m => normalizeStatus(m.status) === 'Active');
+  const queueMissions = missions.filter(m => normalizeStatus(m.status) === 'Queue');
+  const backlogMissions = missions.filter(m => normalizeStatus(m.status) === 'Backlog');
+
+  // Dev-only: prove bucketing inputs each render.
+  const _isDev = (import.meta as any)?.env?.DEV === true;
+  if (_isDev) {
+    const counts = missions.reduce(
+      (acc, m) => {
+        const s = normalizeStatus(m.status);
+        acc[s] += 1;
+        return acc;
+      },
+      { Active: 0, Queue: 0, Backlog: 0, Completed: 0 } as Record<'Active' | 'Queue' | 'Backlog' | 'Completed', number>
+    );
+    console.table([
+      { status: 'Active', count: counts.Active },
+      { status: 'Queue', count: counts.Queue },
+      { status: 'Backlog', count: counts.Backlog },
+      { status: 'Completed', count: counts.Completed },
+    ]);
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -233,6 +253,7 @@ export const PlanView = ({
 
     const activeMission = missions.find(m => m.id === active.id);
     if (!activeMission) return;
+    const activeStatus = normalizeStatus(activeMission.status);
 
     // Handle dragging between Queue and Backlog
     // We only want to reorder if we are over a sortable item in a different container
@@ -244,14 +265,14 @@ export const PlanView = ({
     // Prevent dragging from Backlog directly to Active (handled in DragEnd, but visual feedback here?)
     // If dragging from Backlog, and over Active, we don't want to do anything in DragOver.
 
-    if (activeMission.status === 'Queue' && isOverBacklog) {
+    if (activeStatus === 'Queue' && isOverBacklog) {
        // Moving Queue -> Backlog
        // Update status to Backlog
        const newMissions = missions.map(m => 
          m.id === active.id ? { ...m, status: 'Backlog' as const } : m
        );
        onUpdateMissions(newMissions);
-    } else if (activeMission.status === 'Backlog' && isOverQueue) {
+    } else if (activeStatus === 'Backlog' && isOverQueue) {
        // Moving Backlog -> Queue
        // Update status to Queue
        const newMissions = missions.map(m => 
@@ -275,10 +296,10 @@ export const PlanView = ({
     // 1. Drop on Active Zone
     if (over.id === 'active-zone') {
       // Constraint: Only from Queue
-      if (mission.status === 'Queue') {
+      if (normalizeStatus(mission.status) === 'Queue') {
         // Promote to Active
         // If there is an existing active mission, move it to Queue (pause)
-        const currentActive = missions.find(m => m.status === 'Active');
+        const currentActive = missions.find(m => normalizeStatus(m.status) === 'Active');
         
         const newMissions = missions.map(m => {
           if (m.id === active.id) return { ...m, status: 'Active' as const, progress: m.progress || 0 };
@@ -292,7 +313,7 @@ export const PlanView = ({
            if (oldActiveIndex !== -1) {
              const [oldActive] = newMissions.splice(oldActiveIndex, 1);
              // Find where queue starts
-             const firstQueueIndex = newMissions.findIndex(m => m.status === 'Queue');
+             const firstQueueIndex = newMissions.findIndex(m => normalizeStatus(m.status) === 'Queue');
              if (firstQueueIndex !== -1) {
                newMissions.splice(firstQueueIndex, 0, oldActive);
              } else {
@@ -310,62 +331,37 @@ export const PlanView = ({
       return;
     }
 
-    // 2. Reordering within lists or moving between lists
-    // Check if status changed during DragOver (optimistic update) or needs final update
-    // Since DragOver updates local state, we need to ensure persistence here if status changed
-    
-    // However, DragOver might have already changed the status in local state 'missions'
-    // But 'mission' variable comes from 'missions' state at start of render? 
-    // No, 'missions.find' gets current state.
-    
-    // If we moved from Backlog to Queue, mission.status is ALREADY 'Queue' due to DragOver updates?
-    // Let's check. onUpdateMissions updates 'missions'.
-    // So 'mission.status' here reflects the state AFTER DragOver updates.
-    
-    // We need to persist the status if it's different from what it was BEFORE drag started?
-    // Or just ensure we save it.
-    
-    // Actually, simpler: just save the mission with its current status (which might have been updated by DragOver)
-    // But we also need to handle reordering.
-    
-    if (active.id !== over.id) {
-      const oldIndex = missions.findIndex((item) => item.id === active.id);
-      const newIndex = missions.findIndex((item) => item.id === over.id);
-      
-      if (oldIndex !== -1 && newIndex !== -1) {
-         // If status is different (e.g. dragged from Backlog to Queue and dropped), DragOver handled the visual update
-         // We need to persist the new status.
-         // Note: DragOver updates 'missions', so missions[oldIndex] has the NEW status if it was updated.
-         
-         const updatedMission = missions[oldIndex];
-         
-         // We should persist if the status implies a change we care about.
-         // Since we don't have a 'previous status' easily available without tracking, 
-         // and we want to be safe, we can just save.
-         // But wait, DragOver updates happen frequently. We only want to save on Drop.
-         
-         // If the user dragged from Backlog to Queue, DragOver updated local state to 'Queue'.
-         // Now on Drop, we confirm it.
-         
-         // We need to make sure we persist the change.
-         onSaveMission(updatedMission);
+    // 2. Determine containers for active and over items
+    const activeStatus = normalizeStatus(mission.status);
+    const overIsQueueItem = queueMissions.some(m => m.id === over.id);
+    const overIsBacklogItem = backlogMissions.some(m => m.id === over.id);
+    const activeContainer = activeStatus === 'Queue' ? 'queue' : activeStatus === 'Backlog' ? 'backlog' : null;
+    const overContainer = overIsQueueItem ? 'queue' : overIsBacklogItem ? 'backlog' : null;
 
-         onUpdateMissions(arrayMove(missions, oldIndex, newIndex));
+    // 3. Same-container reorder (e.g. dragging within Next or within Backlog)
+    if (activeContainer !== null && activeContainer === overContainer) {
+      const containerItems = activeContainer === 'queue' ? queueMissions : backlogMissions;
+      const containerStatus = activeContainer === 'queue' ? 'Queue' : 'Backlog';
+      const oldIdx = containerItems.findIndex(m => m.id === active.id);
+      const newIdx = containerItems.findIndex(m => m.id === over.id);
+      if (oldIdx !== -1 && newIdx !== -1) {
+        const reordered = arrayMove(containerItems, oldIdx, newIdx);
+        onUpdateMissions([
+          ...missions.filter(m => normalizeStatus(m.status) !== containerStatus),
+          ...reordered,
+        ]);
       }
+      return;
+    }
+
+    // 4. Cross-container: handleDragOver already updated status; persist the change
+    const oldIndex = missions.findIndex((item) => item.id === active.id);
+    const newIndex = missions.findIndex((item) => item.id === over.id);
+
+    if (oldIndex !== -1 && newIndex !== -1) {
+      onSaveMission(missions[oldIndex]);
+      onUpdateMissions(arrayMove(missions, oldIndex, newIndex));
     } else {
-      // Dropped in same place, but maybe status changed (e.g. dragged to other list and dropped exactly on itself? unlikely)
-      // Or dragged to other list and dropped.
-      // If active.id === over.id, usually no reorder.
-      // But if we moved lists, over.id might be the same item if it's the only one?
-      // No, dnd-kit handles this.
-      
-      // If we just changed lists but no reorder needed (e.g. dropped at end), 
-      // active.id !== over.id usually unless we dropped on self.
-      
-      // If we moved lists, we MUST persist.
-      // Check if mission status matches the container we dropped in?
-      // Actually, DragOver already updated the status in 'missions'.
-      // We just need to persist 'mission'.
       onSaveMission(mission);
     }
   };
@@ -373,19 +369,26 @@ export const PlanView = ({
   const handleCompleteActive = () => {
     if (!activeMission) return;
 
-    const newMissions = missions.filter(m => m.id !== activeMission.id); // Remove completed
-    const firstQueueIndex = newMissions.findIndex(m => m.status === 'Queue');
-    
+    // Persist Completed status to Firestore so it survives the next onSnapshot re-fire.
+    onSaveMission({ ...activeMission, status: 'Completed', completedDate: new Date().toISOString() });
+
+    const newMissions = missions.filter(m => m.id !== activeMission.id);
+    const firstQueueIndex = newMissions.findIndex(m => normalizeStatus(m.status) === 'Queue');
+
     if (firstQueueIndex !== -1) {
-      newMissions[firstQueueIndex] = { ...newMissions[firstQueueIndex], status: 'Active', progress: 0 };
-      
+      const promoted = { ...newMissions[firstQueueIndex], status: 'Active' as const, progress: 0 };
+      newMissions[firstQueueIndex] = promoted;
+      onSaveMission(promoted);
+
       // Conveyor Belt: Move first Backlog item to Queue
-      const firstBacklogIndex = newMissions.findIndex(m => m.status === 'Backlog');
+      const firstBacklogIndex = newMissions.findIndex(m => normalizeStatus(m.status) === 'Backlog');
       if (firstBacklogIndex !== -1) {
-         newMissions[firstBacklogIndex] = { ...newMissions[firstBacklogIndex], status: 'Queue' };
+        const queued = { ...newMissions[firstBacklogIndex], status: 'Queue' as const };
+        newMissions[firstBacklogIndex] = queued;
+        onSaveMission(queued);
       }
     }
-    
+
     onUpdateMissions(newMissions);
   };
 
@@ -400,7 +403,7 @@ export const PlanView = ({
     const pausedMissionIndex = newMissions.findIndex(m => m.id === activeMission.id);
     const [pausedMission] = newMissions.splice(pausedMissionIndex, 1);
     
-    const firstQueueIndex = newMissions.findIndex(m => m.status === 'Queue');
+    const firstQueueIndex = newMissions.findIndex(m => normalizeStatus(m.status) === 'Queue');
     if (firstQueueIndex !== -1) {
       newMissions.splice(firstQueueIndex, 0, pausedMission);
     } else {
@@ -433,6 +436,7 @@ export const PlanView = ({
     setEditingMission(null);
   };
 
+  // Add flow: only call onAddMission (Firestore addDoc). UI updates from parent's onSnapshot — no optimistic/local insert or onUpdateMissions.
   const handleAddMission = async (mission: { title: string; category: MissionCategory; dueDate?: string; destination: 'Today' | 'Next' | 'Backlog' }) => {
     await onAddMission(mission);
     setIsAddModalOpen(false);
@@ -555,7 +559,7 @@ export const PlanView = ({
               {activeMission && <span className="w-1.5 h-1.5 rounded-full bg-[#2F5BFF] animate-pulse"></span>}
             </h3>
             
-            <DroppableZone id="active-zone" disabled={activeDragItem?.status === 'Backlog'}>
+            <DroppableZone id="active-zone" disabled={!!activeDragItem && normalizeStatus(activeDragItem.status) === 'Backlog'}>
               {activeMission ? (
                 <div 
                   className="bg-white rounded-xl p-5 shadow-[0_4px_20px_-4px_rgba(47,91,255,0.15)] border border-[#2F5BFF]/20 ring-1 ring-[#2F5BFF]/10 relative group transition-all hover:shadow-[0_8px_24px_-6px_rgba(47,91,255,0.2)]"
@@ -734,68 +738,78 @@ export const PlanView = ({
             
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Archived Missions</h3>
-              <span className="text-[9px] font-medium text-gray-300">{missions.filter(m => m.status === 'Completed').length} Items</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-medium text-gray-300">{missions.filter(m => isCompleted(m.status)).length} Items</span>
+                <button
+                  type="button"
+                  onClick={() => setShowArchived(!showArchived)}
+                  className="text-[10px] font-medium text-[#2F5BFF] hover:text-blue-600 hover:underline transition-colors"
+                >
+                  {showArchived ? 'Hide archived' : 'Show archived'}
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              {missions
-                .filter(m => m.status === 'Completed')
-                .sort((a, b) => new Date(b.completedDate || 0).getTime() - new Date(a.completedDate || 0).getTime())
-                .map((mission) => {
-                  const categoryStyle = getCategoryStyle(mission.category);
-                  
-                  // Duration Logic
-                  const elapsed = mission.elapsedSeconds || 0;
-                  const durationMinutes = Math.floor(elapsed / 60);
-                  const durationDisplay = (elapsed > 0 && elapsed < 60) 
-                    ? '<1m' 
-                    : `${durationMinutes}m`;
+            {showArchived && (
+              <div className="space-y-2">
+                {missions
+                  .filter(m => isCompleted(m.status))
+                  .sort((a, b) => new Date(b.completedDate || 0).getTime() - new Date(a.completedDate || 0).getTime())
+                  .map((mission) => {
+                    const categoryStyle = getCategoryStyle(mission.category);
+                    
+                    // Duration Logic
+                    const elapsed = mission.elapsedSeconds || 0;
+                    const durationMinutes = Math.floor(elapsed / 60);
+                    const durationDisplay = (elapsed > 0 && elapsed < 60) 
+                      ? '<1m' 
+                      : `${durationMinutes}m`;
 
-                  // Time Logic
-                  const startTime = mission.startedAt ? new Date(mission.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
-                  const endTime = mission.endedAt ? new Date(mission.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
-                  const isToday = mission.completedDate && new Date(mission.completedDate).toDateString() === new Date().toDateString();
+                    // Time Logic
+                    const startTime = mission.startedAt ? new Date(mission.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+                    const endTime = mission.endedAt ? new Date(mission.endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+                    const isToday = mission.completedDate && new Date(mission.completedDate).toDateString() === new Date().toDateString();
 
-                  return (
-                    <div
-                      key={mission.id}
-                      style={{
-                        borderTopWidth: '2px',
-                        borderTopColor: categoryStyle.color
-                      }}
-                      className="bg-gray-50/50 rounded-lg p-3.5 border border-gray-100 flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity"
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${categoryStyle.bg} ${categoryStyle.text} saturate-50`}>
-                            {mission.category}
-                          </span>
-                          <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
-                            ⏱ {durationDisplay}
-                          </span>
+                    return (
+                      <div
+                        key={mission.id}
+                        style={{
+                          borderTopWidth: '2px',
+                          borderTopColor: categoryStyle.color
+                        }}
+                        className="bg-gray-50/50 rounded-lg p-3.5 border border-gray-100 flex items-center gap-3 opacity-75 hover:opacity-100 transition-opacity"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${categoryStyle.bg} ${categoryStyle.text} saturate-50`}>
+                              {mission.category}
+                            </span>
+                            <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                              ⏱ {durationDisplay}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-medium text-gray-700 line-through decoration-gray-300">
+                            {mission.title}
+                          </h4>
+                          <div className="flex items-center gap-2 mt-1.5 text-[9px] text-gray-400 font-medium">
+                            <span>{startTime} – {endTime}</span>
+                            {!isToday && mission.completedDate && (
+                              <>
+                                <span>•</span>
+                                <span>{new Date(mission.completedDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <h4 className="text-sm font-medium text-gray-700 line-through decoration-gray-300">
-                          {mission.title}
-                        </h4>
-                        <div className="flex items-center gap-2 mt-1.5 text-[9px] text-gray-400 font-medium">
-                          <span>{startTime} – {endTime}</span>
-                          {!isToday && mission.completedDate && (
-                            <>
-                              <span>•</span>
-                              <span>{new Date(mission.completedDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                            </>
-                          )}
+                        
+                        <div className="text-emerald-500/50">
+                          <CheckCircle2 size={16} />
                         </div>
                       </div>
-                      
-                      <div className="text-emerald-500/50">
-                        <CheckCircle2 size={16} />
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 
-                {missions.filter(m => m.status === 'Completed').length === 0 && (
+                {missions.filter(m => isCompleted(m.status)).length === 0 && (
                   <div className="text-center py-8 border border-dashed border-gray-200 rounded-xl bg-gray-50/50 flex flex-col items-center justify-center">
                     <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mb-2 text-gray-300">
                       <CheckCircle2 size={14} />
@@ -803,7 +817,8 @@ export const PlanView = ({
                     <p className="text-[10px] font-medium text-gray-400">Completed missions will appear here.</p>
                   </div>
                 )}
-            </div>
+              </div>
+            )}
           </section>
 
           <DragOverlay dropAnimation={dropAnimation}>

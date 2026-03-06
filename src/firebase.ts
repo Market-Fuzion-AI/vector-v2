@@ -24,11 +24,4 @@ setPersistence(auth, browserLocalPersistence).catch((error) => {
   console.error("Firebase persistence error:", error);
 });
 
-// Debug logging
-console.log("[Firebase Init]", {
-  projectId: firebaseConfig.projectId,
-  authDomain: firebaseConfig.authDomain,
-  apiKeyValid: firebaseConfig.apiKey.startsWith("AIza"),
-});
-
 export { app, auth, db, storage };

@@ -16,23 +16,33 @@ export interface UserProfile {
   lastCompletionDate?: string;
 }
 
+export interface UserSettings {
+  brandVoice: string;
+  webhookReport: string;
+  webhookPublish: string;
+  webhookSecret: string;
+}
+
 interface SettingsViewProps {
   user: UserProfile;
   onUpdateUser: (user: UserProfile) => void;
+  settings: UserSettings;
 }
 
-export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
+export const SettingsView = ({ user, onUpdateUser, settings }: SettingsViewProps) => {
   const [name, setName] = useState(user?.name || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [linkedinUrl, setLinkedinUrl] = useState(user?.linkedinUrl || '');
   const [tagline, setTagline] = useState(user?.tagline || 'Ready To Take On The Day!');
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [streakCount, setStreakCount] = useState(0);
-  const [openaiKey, setOpenaiKey] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [brandVoice, setBrandVoice] = useState('');
   const [webhookReport, setWebhookReport] = useState('');
   const [webhookPublish, setWebhookPublish] = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  const [webhookReportStatus, setWebhookReportStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [webhookPublishStatus, setWebhookPublishStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const [firebaseTestResult, setFirebaseTestResult] = useState<string | null>(null);
   
   // New account fields
@@ -60,27 +70,11 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
   }, [currentUser]);
 
   React.useEffect(() => {
-    const storedStreak = localStorage.getItem('streakCount');
-    if (storedStreak) {
-      setStreakCount(parseInt(storedStreak, 10));
-    }
-    const storedKey = localStorage.getItem('vector_openai_key');
-    if (storedKey) {
-      setOpenaiKey(storedKey);
-    }
-    const storedBrandVoice = localStorage.getItem('vector_brand_voice');
-    if (storedBrandVoice) {
-      setBrandVoice(storedBrandVoice);
-    }
-    const storedWebhookReport = localStorage.getItem('vector_webhook_report');
-    if (storedWebhookReport) {
-      setWebhookReport(storedWebhookReport);
-    }
-    const storedWebhookPublish = localStorage.getItem('vector_webhook_publish');
-    if (storedWebhookPublish) {
-      setWebhookPublish(storedWebhookPublish);
-    }
-  }, []);
+    setBrandVoice(settings.brandVoice);
+    setWebhookReport(settings.webhookReport);
+    setWebhookPublish(settings.webhookPublish);
+    setWebhookSecret(settings.webhookSecret);
+  }, [settings]);
 
   const handleSaveSettings = async () => {
     if (!currentUser) return;
@@ -116,35 +110,30 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
         avatarUrl,
         linkedinUrl,
         tagline,
-        openaiApiKey: openaiKey,
         brandVoice,
         webhooks: {
           report: webhookReport,
-          publish: webhookPublish
+          publish: webhookPublish,
+          secret: webhookSecret,
         },
         updatedAt: new Date().toISOString()
       };
 
       await setDoc(userRef, userData, { merge: true });
 
-      // 4. LocalStorage Updates (Legacy Support)
-      localStorage.setItem('vector_openai_key', openaiKey);
-      localStorage.setItem('vector_brand_voice', brandVoice);
-      localStorage.setItem('vector_webhook_report', webhookReport);
-      localStorage.setItem('vector_webhook_publish', webhookPublish);
-
-      // 5. Update Parent State
+      // 4. Update Parent State
       onUpdateUser({ name, avatarUrl, linkedinUrl, tagline });
 
       // Clear sensitive fields
       setPassword('');
       setConfirmPassword('');
-      
-      alert("Settings saved successfully!");
+
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
 
     } catch (error: any) {
       console.error("Error saving settings:", error);
-      alert(`Failed to save settings: ${error.message}`);
+      setSaveStatus('error');
     } finally {
       setIsSaving(false);
     }
@@ -171,6 +160,45 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
       await signOut();
     } catch (error: any) {
       alert(error.message);
+    }
+  };
+
+  const testWebhook = async (
+    url: string,
+    type: 'report' | 'publish',
+    setStatus: (s: 'idle' | 'sending' | 'sent' | 'failed') => void
+  ) => {
+    if (!url) {
+      alert(`Enter a webhook URL first.`);
+      return;
+    }
+
+    // Soft URL validation
+    const looksLikeMake = url.startsWith('https://') && /make\.com/.test(url);
+    if (!looksLikeMake) {
+      const proceed = window.confirm(
+        `This URL doesn't look like a Make.com webhook (expected https://hook.make.com/…).\n\nSend test anyway?`
+      );
+      if (!proceed) return;
+    }
+
+    setStatus('sending');
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: `test_${type}`,
+          userId: currentUser?.uid ?? 'anonymous',
+          timestamp: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStatus('sent');
+    } catch {
+      setStatus('failed');
+    } finally {
+      setTimeout(() => setStatus('idle'), 2000);
     }
   };
 
@@ -347,19 +375,6 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
             {/* AI Section */}
             <div className="space-y-4">
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">OpenAI API Key</label>
-                <input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
-                />
-                <p className="text-[10px] text-gray-400 mt-1.5">
-                  Used to generate captions, hooks, and CTAs inside Content.
-                </p>
-              </div>
-              <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Brand Voice (Optional)</label>
                 <textarea
                   value={brandVoice}
@@ -380,28 +395,73 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
             <div className="space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Generate Report Webhook (Make.com)</label>
-                <input
-                  type="text"
-                  value={webhookReport}
-                  onChange={(e) => setWebhookReport(e.target.value)}
-                  placeholder="https://hook.make.com/..."
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={webhookReport}
+                    onChange={(e) => setWebhookReport(e.target.value)}
+                    placeholder="https://hook.make.com/..."
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
+                  />
+                  <button
+                    onClick={() => testWebhook(webhookReport, 'report', setWebhookReportStatus)}
+                    disabled={webhookReportStatus === 'sending'}
+                    className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all border disabled:cursor-not-allowed ${
+                      webhookReportStatus === 'sent'   ? 'bg-green-50 border-green-200 text-green-600' :
+                      webhookReportStatus === 'failed' ? 'bg-red-50 border-red-200 text-red-600' :
+                      'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {webhookReportStatus === 'sending' ? <Loader2 size={13} className="animate-spin" /> :
+                     webhookReportStatus === 'sent'    ? 'Sent ✅' :
+                     webhookReportStatus === 'failed'  ? 'Failed' :
+                     'Test'}
+                  </button>
+                </div>
                 <p className="text-[10px] text-gray-400 mt-1.5">
                   Triggered when clicking Generate Report.
                 </p>
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Publish Content Webhook (Make.com)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={webhookPublish}
+                    onChange={(e) => setWebhookPublish(e.target.value)}
+                    placeholder="https://hook.make.com/..."
+                    className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
+                  />
+                  <button
+                    onClick={() => testWebhook(webhookPublish, 'publish', setWebhookPublishStatus)}
+                    disabled={webhookPublishStatus === 'sending'}
+                    className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all border disabled:cursor-not-allowed ${
+                      webhookPublishStatus === 'sent'   ? 'bg-green-50 border-green-200 text-green-600' :
+                      webhookPublishStatus === 'failed' ? 'bg-red-50 border-red-200 text-red-600' :
+                      'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {webhookPublishStatus === 'sending' ? <Loader2 size={13} className="animate-spin" /> :
+                     webhookPublishStatus === 'sent'    ? 'Sent ✅' :
+                     webhookPublishStatus === 'failed'  ? 'Failed' :
+                     'Test'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  Triggered when publishing content.
+                </p>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">Automation Secret (x-vector-secret)</label>
                 <input
-                  type="text"
-                  value={webhookPublish}
-                  onChange={(e) => setWebhookPublish(e.target.value)}
-                  placeholder="https://hook.make.com/..."
+                  type="password"
+                  value={webhookSecret}
+                  onChange={(e) => setWebhookSecret(e.target.value)}
+                  placeholder="Optional shared secret"
                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
                 />
                 <p className="text-[10px] text-gray-400 mt-1.5">
-                  Triggered when publishing content.
+                  Sent as <code className="bg-gray-100 px-1 rounded">x-vector-secret</code> header on all webhook calls. Leave blank to send no header.
                 </p>
               </div>
             </div>
@@ -411,16 +471,24 @@ export const SettingsView = ({ user, onUpdateUser }: SettingsViewProps) => {
 
         {/* Main Save Button */}
         <div className="sticky bottom-6 z-10">
-          <button 
+          <button
             onClick={handleSaveSettings}
             disabled={isSaving}
-            className="w-full py-4 bg-[#2F5BFF] hover:bg-blue-600 text-white rounded-2xl text-base font-bold transition-all shadow-xl shadow-blue-500/30 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            className={`w-full py-4 text-white rounded-2xl text-base font-bold transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed ${
+              saveStatus === 'saved' ? 'bg-emerald-500 shadow-emerald-500/30' :
+              saveStatus === 'error' ? 'bg-red-500 shadow-red-500/30' :
+              'bg-[#2F5BFF] hover:bg-blue-600 shadow-blue-500/30'
+            }`}
           >
             {isSaving ? (
               <>
                 <Loader2 size={20} className="animate-spin" />
-                <span>Saving Changes...</span>
+                <span>Saving...</span>
               </>
+            ) : saveStatus === 'saved' ? (
+              <span>Saved ✓</span>
+            ) : saveStatus === 'error' ? (
+              <span>Save failed — try again</span>
             ) : (
               <>
                 <Save size={20} />
