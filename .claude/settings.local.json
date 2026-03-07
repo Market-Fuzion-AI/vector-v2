@@ -10,7 +10,8 @@
       "Bash(npm install:*)",
       "Bash(firebase projects:list:*)",
       "Bash(firebase:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

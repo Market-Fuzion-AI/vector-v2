@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { lsGet, lsSet, lsRemove } from '../utils/localStorage';
+import { normalizeHashtags } from '../utils/normalizeHashtags';
 
 interface ContentEditorProps {
   isOpen: boolean;
@@ -244,7 +245,7 @@ export const ContentEditor = ({ isOpen, onClose, item, initialStatus = 'idea', m
           `- Direct and friendly tone.`;
         break;
       case 'hashtags': {
-        const hashtagCount = platform === 'LinkedIn' ? '3–5' : '6–10';
+        const hashtagCount = '3–5';
         userPrompt =
           `Generate hashtags for this ${platform} post.\n` +
           `Context:\n${contextParts}\n\n` +
@@ -284,7 +285,7 @@ export const ContentEditor = ({ isOpen, onClose, item, initialStatus = 'idea', m
       if (type === 'caption') return text.length <= captionLimit;
       if (type === 'hashtags') {
         const count = text.split(/\s+/).filter(t => t.startsWith('#')).length;
-        return platform === 'LinkedIn' ? count <= 5 : count <= 10;
+        return count >= 3 && count <= 5;
       }
       return true;
     };
@@ -308,7 +309,7 @@ export const ContentEditor = ({ isOpen, onClose, item, initialStatus = 'idea', m
       if (type === 'hook')     setHook(result);
       if (type === 'caption')  setCaption(result);
       if (type === 'cta')      setCta(result);
-      if (type === 'hashtags') setHashtags(result);
+      if (type === 'hashtags') setHashtags(normalizeHashtags(result).join(' '));
 
     } catch (error) {
       console.error("AI Generation Error:", error);
@@ -414,7 +415,10 @@ export const ContentEditor = ({ isOpen, onClose, item, initialStatus = 'idea', m
                 'You are an expert prompt engineer for image generation. ' +
                 'Rewrite the user\'s prompt into a structured, descriptive image-gen prompt ' +
                 '(subject, scene, lighting, composition, visual style cues). ' +
-                'Preserve the original intent exactly. ' +
+                'Preserve the creative intent — but rephrase any wording that could trigger content safety filters. ' +
+                'Replace graphic violence, gore, explicit content, or disturbing details with cinematic equivalents: ' +
+                'use language like "cinematic", "stylized", "atmospheric", "dramatic", "dark fantasy", "implied", "silhouette", "moody lighting". ' +
+                'The output must be safe for OpenAI image generation. ' +
                 'Output ONLY the improved prompt text — no quotes, no labels, no commentary. ' +
                 'Keep it under 500 characters.',
             },
@@ -458,7 +462,7 @@ export const ContentEditor = ({ isOpen, onClose, item, initialStatus = 'idea', m
         status: 'scheduled',
         hook,
         caption,
-        hashtags: hashtags.split(' ').filter(t => t.length > 0),
+        hashtags: normalizeHashtags(hashtags),
         cta,
         imageUrl,
         linkedMissionId,

@@ -4,6 +4,7 @@ import {
   closestCorners,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragOverlay,
@@ -89,7 +90,7 @@ const SortableItem: React.FC<{ mission: Mission; onEdit: (mission: Mission) => v
           : 'bg-white border-gray-100 hover:border-gray-200'
       }`}
     >
-      <div {...attributes} {...listeners} className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
+      <div {...attributes} {...listeners} style={{ touchAction: 'none' }} className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
         <GripVertical size={14} />
       </div>
       
@@ -234,6 +235,12 @@ export const PlanView = ({
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 5,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 250,
+        tolerance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
