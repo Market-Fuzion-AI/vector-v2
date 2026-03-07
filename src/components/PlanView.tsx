@@ -82,16 +82,22 @@ const SortableItem: React.FC<{ mission: Mission; onEdit: (mission: Mission) => v
       style={{
         ...style,
         borderTopWidth: '2px',
-        borderTopColor: categoryStyle.color
+        borderTopColor: categoryStyle.color,
+        userSelect: 'none',
       }}
-      className={`rounded-lg p-3.5 border shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-3 group transition-colors mb-2 ${
-        isBacklog 
-          ? 'bg-white/40 border-gray-100 hover:bg-white hover:border-gray-200' 
+      className={`drag-no-select rounded-lg p-3.5 border shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-3 group transition-colors mb-2 ${
+        isBacklog
+          ? 'bg-white/40 border-gray-100 hover:bg-white hover:border-gray-200'
           : 'bg-white border-gray-100 hover:border-gray-200'
       }`}
     >
-      <div {...attributes} {...listeners} style={{ touchAction: 'none' }} className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
-        <GripVertical size={14} />
+      <div
+        {...attributes}
+        {...listeners}
+        style={{ touchAction: 'none', minWidth: '44px', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+        className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing"
+      >
+        <GripVertical size={16} />
       </div>
       
       <div className="flex-1 cursor-pointer" onClick={() => onEdit(mission)}>
