@@ -3,7 +3,7 @@ import {
   DndContext,
   closestCorners,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -84,6 +84,7 @@ const SortableItem: React.FC<{ mission: Mission; onEdit: (mission: Mission) => v
         borderTopWidth: '2px',
         borderTopColor: categoryStyle.color,
         userSelect: 'none',
+        touchAction: 'none',
       }}
       className={`drag-no-select rounded-lg p-3.5 border shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-3 group transition-colors mb-2 ${
         isBacklog
@@ -238,7 +239,7 @@ export const PlanView = ({
   }
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 5,
       },
@@ -246,7 +247,7 @@ export const PlanView = ({
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 250,
-        tolerance: 5,
+        tolerance: 10,
       },
     }),
     useSensor(KeyboardSensor, {
