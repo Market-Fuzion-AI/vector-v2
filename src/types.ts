@@ -29,6 +29,7 @@ export interface Mission {
   elapsedSeconds?: number;
   startedAt?: string; // ISO string
   endedAt?: string; // ISO string
+  sortIndex?: number; // Persistent drag order; higher = later in lane
 }
 
 export type ContentPlatform = 'Instagram' | 'Facebook' | 'LinkedIn';

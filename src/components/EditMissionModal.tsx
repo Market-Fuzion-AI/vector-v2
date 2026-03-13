@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Trash2, Calendar, Clock, Tag } from 'lucide-react';
+import { X, Trash2, Calendar, Tag } from 'lucide-react';
 import { Mission, MissionCategory } from '../types';
 import { CATEGORY_CONFIG } from '../constants';
 
@@ -11,21 +11,15 @@ interface EditMissionModalProps {
   onDelete: (id: string) => void;
 }
 
-const EFFORT_OPTIONS = ['1h', '2h', '4h', 'Custom'];
-
 export const EditMissionModal = ({ mission, isOpen, onClose, onSave, onDelete }: EditMissionModalProps) => {
   const [title, setTitle] = useState(mission.title);
   const [category, setCategory] = useState<MissionCategory>(mission.category);
-  const [effort, setEffort] = useState(mission.effort || '1h');
-  const [customEffort, setCustomEffort] = useState('');
   const [dueDate, setDueDate] = useState(mission.dueDate || '');
 
   useEffect(() => {
     if (isOpen) {
       setTitle(mission.title);
       setCategory(mission.category);
-      setEffort(mission.effort && EFFORT_OPTIONS.includes(mission.effort) ? mission.effort : (mission.effort ? 'Custom' : '1h'));
-      setCustomEffort(mission.effort && !EFFORT_OPTIONS.includes(mission.effort) ? mission.effort : '');
       setDueDate(mission.dueDate || '');
     }
   }, [isOpen, mission]);
@@ -37,7 +31,6 @@ export const EditMissionModal = ({ mission, isOpen, onClose, onSave, onDelete }:
       ...mission,
       title,
       category,
-      effort: effort === 'Custom' ? customEffort : effort,
       dueDate: dueDate || undefined,
     });
     onClose();
@@ -91,46 +84,17 @@ export const EditMissionModal = ({ mission, isOpen, onClose, onSave, onDelete }:
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Effort */}
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
-                <Clock size={10} /> Effort
-              </label>
-              <div className="relative">
-                <select
-                  value={effort}
-                  onChange={(e) => setEffort(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] appearance-none transition-all"
-                >
-                  {EFFORT_OPTIONS.map(opt => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-                {effort === 'Custom' && (
-                  <input
-                    type="text"
-                    value={customEffort}
-                    onChange={(e) => setCustomEffort(e.target.value)}
-                    placeholder="e.g. 30m"
-                    className="mt-2 w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* Due Date */}
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
-                <Calendar size={10} /> Due Date
-              </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
-              />
-            </div>
+          {/* Due Date */}
+          <div>
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+              <Calendar size={10} /> Due Date
+            </label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2F5BFF]/20 focus:border-[#2F5BFF] transition-all"
+            />
           </div>
         </div>
 

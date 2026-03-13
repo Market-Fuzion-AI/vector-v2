@@ -11,7 +11,9 @@
       "Bash(firebase projects:list:*)",
       "Bash(firebase:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(wait:*)",
+      "Bash(./node_modules/.bin/tsc:*)"
     ]
   }
 }

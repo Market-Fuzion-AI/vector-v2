@@ -808,15 +808,15 @@ export default function Dashboard() {
           } as Mission;
         });
         
-        // Sort by status (Active first) then createdAt?
-        // Or just keep them as is.
-        // Let's sort by createdAt to maintain insertion order (simulating the initial array order)
+        // Sort by sortIndex when both missions have it; fall back to createdAt.
         loadedMissions.sort((a, b) => {
-           // If createdAt exists
-           if (a['createdAt'] && b['createdAt']) {
-             return new Date(a['createdAt']).getTime() - new Date(b['createdAt']).getTime();
-           }
-           return 0;
+          if (a.sortIndex !== undefined && b.sortIndex !== undefined) {
+            return a.sortIndex - b.sortIndex;
+          }
+          if (a['createdAt'] && b['createdAt']) {
+            return new Date(a['createdAt']).getTime() - new Date(b['createdAt']).getTime();
+          }
+          return 0;
         });
 
         setMissions(loadedMissions);
@@ -1117,6 +1117,7 @@ export default function Dashboard() {
         uid: currentUser.uid,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        sortIndex: Date.now(), // Place at end of lane on first load
       };
   
       // Remove undefined fields

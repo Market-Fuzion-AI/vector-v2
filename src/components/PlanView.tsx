@@ -84,7 +84,9 @@ const SortableItem: React.FC<{ mission: Mission; onEdit: (mission: Mission) => v
         borderTopWidth: '2px',
         borderTopColor: categoryStyle.color,
         userSelect: 'none',
-        touchAction: 'none',
+        // touchAction is intentionally NOT set here so the browser can scroll normally
+        // when the user touches the card body. touchAction:'none' lives on the drag
+        // handle only (below), where the dnd-kit listeners are actually attached.
       }}
       className={`drag-no-select rounded-lg p-3.5 border shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-3 group transition-colors mb-2 ${
         isBacklog
@@ -360,9 +362,13 @@ export const PlanView = ({
       const newIdx = containerItems.findIndex(m => m.id === over.id);
       if (oldIdx !== -1 && newIdx !== -1) {
         const reordered = arrayMove(containerItems, oldIdx, newIdx);
+        // Assign new sortIndex values to persist the reordered positions
+        const base = Date.now();
+        const withSortIndex = reordered.map((m, i) => ({ ...m, sortIndex: base + i }));
+        withSortIndex.forEach(m => onSaveMission(m));
         onUpdateMissions([
           ...missions.filter(m => normalizeStatus(m.status) !== containerStatus),
-          ...reordered,
+          ...withSortIndex,
         ]);
       }
       return;
@@ -373,10 +379,11 @@ export const PlanView = ({
     const newIndex = missions.findIndex((item) => item.id === over.id);
 
     if (oldIndex !== -1 && newIndex !== -1) {
-      onSaveMission(missions[oldIndex]);
+      // Include a sortIndex so the mission stays at this position after a snapshot reload
+      onSaveMission({ ...missions[oldIndex], sortIndex: Date.now() });
       onUpdateMissions(arrayMove(missions, oldIndex, newIndex));
     } else {
-      onSaveMission(mission);
+      onSaveMission({ ...mission, sortIndex: Date.now() });
     }
   };
 
