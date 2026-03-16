@@ -1,20 +1,62 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Vector AI Automation Platform
 
-# Run and deploy your AI Studio app
+Vector is an AI-powered automation platform for building and executing intelligent workflows, generating AI-driven content, and integrating external services through automated pipelines.
 
-This contains everything you need to run your app locally.
+The platform enables users to trigger AI workflows, process data through automation layers, and deliver outputs to external systems like Slack, APIs, or automation tools.
 
-View your app in AI Studio: https://ai.studio/apps/58d1d96a-3f96-4f6a-bf4b-b04c02afdc3a
+---
 
-## Run Locally
+## Core Features
 
-**Prerequisites:**  Node.js
+- AI content generation using OpenAI models
+- Automation workflows triggered via webhooks
+- External integrations with tools like Make.com
+- Data processing pipelines for structured outputs
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Tech Stack
+
+Frontend  
+React  
+TypeScript  
+Vite  
+
+Backend / Services  
+Firebase  
+Firestore  
+
+AI + Automation  
+OpenAI API  
+Make.com  
+Webhooks  
+
+---
+
+## Project Structure
+
+src/
+components/
+pages/
+services/
+api/
+firebase/
+
+---
+
+## Running the Project
+
+Install dependencies
+
+npm install
+
+Run the development server
+
+npm run dev
+
+---
+
+## Author
+
+Emerson Alvarenga  
+AI Automation Engineer
